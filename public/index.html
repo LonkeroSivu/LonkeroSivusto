@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LonkeroSivu</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        .container { max-width: 800px; margin: auto; }
+        video { width: 100%; }
+        .video-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .video-container {
+            border: 1px solid #ddd;
+            padding: 10px;
+            width: 18%;
+            min-width: 200px;
+        }
+        .username { font-weight: bold; }
+        .delete-btn { color: red; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>LonkeroSivu</h1>
+    <div class="container">
+        <h2>Hakupalkki</h2>
+        <input type="text" id="searchBar" placeholder="Etsi videoita tai käyttäjiä..." oninput="searchVideos()">
+
+        <h2>Käyttäjätunnus</h2>
+        <p id="userDisplay"></p>
+        <input type="text" id="usernameInput" placeholder="Uusi käyttäjänimi">
+        <button onclick="changeUsername()">Vaihda nimi</button>
+        
+        <h2>Lataa video</h2>
+        <input type="file" id="videoUpload" accept="video/*">
+        <input type="text" id="videoTitle" placeholder="Videon nimi" required>
+        <input type="text" id="videoBio" placeholder="Videon kuvaus (vapaaehtoinen)">
+        <button onclick="uploadVideo()">Julkaise</button>
+        <p id="error" style="color: red;"></p>
+        
+        <hr>
+        <h2>Videot</h2>
+        <div id="videoList" class="video-grid"></div>
+    </div>
+
+    <script>
+        function generateUserId() {
+            if (!localStorage.getItem("userId")) {
+                const randomNum = Math.floor(Math.random() * 1000000);
+                localStorage.setItem("userId", `User-${randomNum}`);
+            }
+            return localStorage.getItem("userId");
+        }
+
+        function loadUser() {
+            document.getElementById("userDisplay").textContent = "Tunnus: " + generateUserId();
+        }
+
+        function changeUsername() {
+            const newUsername = document.getElementById("usernameInput").value.trim();
+            if (!newUsername) return alert("Syötä käyttäjänimi!");
+
+            fetch("/update-username", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: generateUserId(), newUsername })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    localStorage.setItem("userId", newUsername);
+                    loadUser();
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function uploadVideo() {
+            const fileInput = document.getElementById("videoUpload");
+            const titleInput = document.getElementById("videoTitle").value.trim();
+            const bioInput = document.getElementById("videoBio").value.trim();
+            const error = document.getElementById("error");
+
+            if (fileInput.files.length === 0) {
+                error.textContent = "Valitse video!";
+                return;
+            }
+            if (!titleInput) {
+                error.textContent = "Videolla täytyy olla nimi!";
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append("video", file);
+            formData.append("title", titleInput);
+            formData.append("bio", bioInput);
+            formData.append("userId", generateUserId());
+
+            fetch("/upload", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadVideos();
+                } else {
+                    error.textContent = "Virhe tiedoston latauksessa.";
+                }
+            })
+            .catch(() => {
+                error.textContent = "Virhe tiedoston latauksessa.";
+            });
+        }
+
+        function loadVideos() {
+            fetch("/videos")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const videoList = document.getElementById("videoList");
+                        videoList.innerHTML = "";
+                        data.videos.forEach(video => {
+                            const videoContainer = document.createElement("div");
+                            videoContainer.classList.add("video-container");
+                            
+                            videoContainer.innerHTML = `
+                                <p class="username">${video.title} (${video.userId})</p>
+                                <video src="${video.url}" controls></video>
+                                ${video.bio ? `<p>${video.bio}</p>` : ""}
+                                ${video.userId === generateUserId() ? `<button class="delete-btn" onclick="deleteVideo('${video.url.split('/').pop()}')">Poista</button>` : ""}
+                            `;
+                            
+                            videoList.appendChild(videoContainer);
+                        });
+                    }
+                });
+        }
+
+        function deleteVideo(filename) {
+            fetch(`/videos/${filename}`, { method: "DELETE" })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadVideos();
+                    } else {
+                        alert("Videon poistaminen epäonnistui.");
+                    }
+                });
+        }
+
+        function searchVideos() {
+            let searchValue = document.getElementById("searchBar").value.toLowerCase();
+            let videos = document.querySelectorAll(".video-container");
+            videos.forEach(video => {
+                let titleText = video.querySelector(".username").textContent.toLowerCase();
+                video.style.display = titleText.includes(searchValue) ? "block" : "none";
+            });
+        }
+
+        window.onload = () => {
+            loadUser();
+            loadVideos();
+        };
+    </script>
+</body>
+</html>
