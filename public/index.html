@@ -8,12 +8,34 @@
         body { font-family: Arial, sans-serif; text-align: center; }
         .container { max-width: 800px; margin: auto; }
         video { width: 100%; }
-        .video-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-        .video-container { border: 1px solid #ddd; padding: 10px; width: 18%; min-width: 200px; }
-        .username { font-weight: bold; color: blue; cursor: pointer; }
-        .delete-btn { color: red; cursor: pointer; }
-        .profile-section { margin-top: 20px; }
-        .profile-picture { width: 100px; height: 100px; border-radius: 50%; }
+        .video-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .video-container {
+            border: 1px solid #ddd;
+            padding: 10px;
+            width: 18%;
+            min-width: 200px;
+        }
+        .username {
+            font-weight: bold;
+            color: blue;
+            cursor: pointer;
+        }
+        .profile-pic {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
 </head>
 <body>
@@ -22,19 +44,21 @@
         <h2>Hakupalkki</h2>
         <input type="text" id="searchBar" placeholder="Etsi videoita tai käyttäjiä..." oninput="searchVideos()">
 
-        <h2>Profiili</h2>
-        <img id="profilePicture" class="profile-picture" src="default.png" alt="Profiilikuva">
-        <p id="userDisplay"></p>
-        <input type="file" id="profileImageUpload" accept="image/*">
-        <button onclick="updateProfileImage()">Vaihda kuva</button>
-        <br>
-        <textarea id="profileBio" placeholder="Kirjoita profiilikuvaus..."></textarea>
-        <button onclick="updateProfileBio()">Päivitä kuvaus</button>
+        <h2>Käyttäjätunnus</h2>
+        <div class="user-info">
+            <img id="profilePic" class="profile-pic" src="default.jpg" alt="Profiilikuva">
+            <p id="userDisplay"></p>
+        </div>
+        <input type="text" id="usernameInput" placeholder="Uusi käyttäjänimi">
+        <button onclick="changeUsername()">Vaihda nimi</button>
+        
+        <h2>Päivitä profiili</h2>
+        <input type="file" id="profilePicUpload" accept="image/*">
+        <button onclick="uploadProfilePic()">Päivitä profiilikuva</button>
 
         <h2>Lataa video</h2>
         <input type="file" id="videoUpload" accept="video/*">
         <input type="text" id="videoTitle" placeholder="Videon nimi" required>
-        <input type="text" id="videoBio" placeholder="Videon kuvaus (vapaaehtoinen)">
         <button onclick="uploadVideo()">Julkaise</button>
         <p id="error" style="color: red;"></p>
         
@@ -46,41 +70,58 @@
     <script>
         function generateUserId() {
             if (!localStorage.getItem("userId")) {
-                const username = prompt("Valitse käyttäjänimi (ainutlaatuinen):");
-                if (!username || username.trim() === "") return generateUserId();
-                localStorage.setItem("userId", username);
+                const randomNum = Math.floor(Math.random() * 1000000);
+                localStorage.setItem("userId", `User-${randomNum}`);
             }
             return localStorage.getItem("userId");
         }
 
         function loadUser() {
             document.getElementById("userDisplay").textContent = "Tunnus: " + generateUserId();
+            const savedProfilePic = localStorage.getItem("profilePic");
+            if (savedProfilePic) {
+                document.getElementById("profilePic").src = savedProfilePic;
+            }
         }
 
-        function updateProfileImage() {
-            const fileInput = document.getElementById("profileImageUpload");
-            if (fileInput.files.length === 0) return alert("Valitse kuva!");
+        function changeUsername() {
+            const newUsername = document.getElementById("usernameInput").value.trim();
+            if (!newUsername) return alert("Syötä käyttäjänimi!");
 
-            const file = fileInput.files[0];
+            fetch("/update-username", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: generateUserId(), newUsername })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    localStorage.setItem("userId", newUsername);
+                    loadUser();
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function uploadProfilePic() {
+            const fileInput = document.getElementById("profilePicUpload");
+            if (fileInput.files.length === 0) {
+                return alert("Valitse profiilikuva!");
+            }
             const reader = new FileReader();
             reader.onload = function(event) {
-                document.getElementById("profilePicture").src = event.target.result;
-                localStorage.setItem("profilePicture", event.target.result);
+                localStorage.setItem("profilePic", event.target.result);
+                document.getElementById("profilePic").src = event.target.result;
             };
-            reader.readAsDataURL(file);
-        }
-
-        function updateProfileBio() {
-            const bio = document.getElementById("profileBio").value;
-            localStorage.setItem("profileBio", bio);
+            reader.readAsDataURL(fileInput.files[0]);
         }
 
         function uploadVideo() {
             const fileInput = document.getElementById("videoUpload");
             const titleInput = document.getElementById("videoTitle").value.trim();
-            const bioInput = document.getElementById("videoBio").value.trim();
             const error = document.getElementById("error");
-            
+
             if (fileInput.files.length === 0) {
                 error.textContent = "Valitse video!";
                 return;
@@ -94,7 +135,6 @@
             const formData = new FormData();
             formData.append("video", file);
             formData.append("title", titleInput);
-            formData.append("bio", bioInput);
             formData.append("userId", generateUserId());
 
             fetch("/upload", {
@@ -124,21 +164,18 @@
                         data.videos.forEach(video => {
                             const videoContainer = document.createElement("div");
                             videoContainer.classList.add("video-container");
-                            
                             videoContainer.innerHTML = `
-                                <p class="username" onclick="goToProfile('${video.userId}')">${video.userId}</p>
+                                <div class="user-info" onclick="window.location.href='/profile/${video.userId}'">
+                                    <img class="profile-pic" src="${video.profilePic}" alt="Profiilikuva">
+                                    <p class="username">${video.userId}</p>
+                                </div>
+                                <p>${video.title}</p>
                                 <video src="${video.url}" controls></video>
-                                ${video.bio ? `<p>${video.bio}</p>` : ""}
                             `;
-                            
                             videoList.appendChild(videoContainer);
                         });
                     }
                 });
-        }
-
-        function goToProfile(username) {
-            alert("Profiili: " + username);
         }
 
         window.onload = () => {
