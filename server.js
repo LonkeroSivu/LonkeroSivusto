@@ -1,3 +1,4 @@
+// Backend updates
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -6,24 +7,18 @@ const cron = require("node-cron");
 
 const app = express();
 const PORT = 3000;
-
 const uploadDir = path.join(__dirname, "uploads/videos");
 const usersFile = path.join(__dirname, "users.json");
+const profilesFile = path.join(__dirname, "profiles.json");
+const likesFile = path.join(__dirname, "likes.json");
 
-// Luodaan tarvittavat kansiot ja tiedostot, jos niitä ei ole
+// Ensure necessary files exist
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(usersFile)) fs.writeFileSync(usersFile, JSON.stringify({}));
+if (!fs.existsSync(profilesFile)) fs.writeFileSync(profilesFile, JSON.stringify({}));
+if (!fs.existsSync(likesFile)) fs.writeFileSync(likesFile, JSON.stringify({}));
 
-// **Käyttäjänimen tallennus**
-function saveUsername(userId, newUsername) {
-    const users = JSON.parse(fs.readFileSync(usersFile));
-    if (Object.values(users).includes(newUsername)) return false; // Tarkistetaan, onko nimi käytössä
-    users[userId] = newUsername;
-    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-    return true;
-}
-
-// **Tiedoston tallennusasetukset**
+// Storage setup
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
@@ -39,92 +34,103 @@ app.use(express.static("public"));
 app.use(express.json());
 app.use(require("cors")());
 
-// **Lataa video**
+// Upload video
 app.post("/upload", upload.single("video"), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, message: "Tiedoston lataus epäonnistui" });
+    if (!req.file) return res.status(400).json({ success: false, message: "Upload failed" });
 
     const filePath = `/videos/${req.file.filename}`;
+    const uploadTime = Date.now();
+    
     const videoData = {
-        title: req.body.title || "Nimetön video",
-        bio: req.body.bio || "Ei kuvausta",
+        title: req.body.title || "Untitled",
+        bio: req.body.bio || "No description",
         userId: req.body.userId,
-        url: filePath
+        url: filePath,
+        uploadTime,
+        likes: 0,
+        dislikes: 0
     };
 
     fs.writeFileSync(path.join(uploadDir, `${req.file.filename}.json`), JSON.stringify(videoData, null, 2));
     res.json({ success: true, filePath });
 });
 
-// **Hae videot**
+// Get videos
 app.get("/videos", (req, res) => {
     fs.readdir(uploadDir, (err, files) => {
-        if (err) return res.status(500).json({ success: false, message: "Virhe haettaessa videoita" });
-
+        if (err) return res.status(500).json({ success: false });
+        
         const videos = files.filter(file => file.endsWith(".mp4")).map(file => {
             const metaFile = path.join(uploadDir, file + ".json");
-            let meta = { title: file, bio: "Ei kuvausta", userId: "Tuntematon" };
+            let meta = { title: file, bio: "No description", userId: "Unknown", likes: 0, dislikes: 0 };
 
             if (fs.existsSync(metaFile)) {
                 meta = JSON.parse(fs.readFileSync(metaFile));
             }
-
             return { ...meta, url: `/videos/${file}` };
         });
-
         res.json({ success: true, videos });
     });
 });
 
-// **Muokkaa videon tietoja**
-app.put("/videos/:filename", (req, res) => {
-    const filename = req.params.filename;
-    const metaFile = path.join(uploadDir, filename + ".json");
+// Like or Dislike
+app.post("/video/:filename/vote", (req, res) => {
+    const { filename } = req.params;
+    const { userId, vote } = req.body;
+    if (!["like", "dislike"].includes(vote)) return res.status(400).json({ success: false });
 
-    if (!fs.existsSync(metaFile)) return res.status(404).json({ success: false, message: "Videota ei löydy" });
-
-    const updatedData = JSON.parse(fs.readFileSync(metaFile));
-    updatedData.title = req.body.title || updatedData.title;
-    updatedData.bio = req.body.bio || updatedData.bio;
-
-    fs.writeFileSync(metaFile, JSON.stringify(updatedData, null, 2));
-    res.json({ success: true, message: "Video päivitetty", video: updatedData });
-});
-
-// **Poista video**
-app.delete("/videos/:filename", (req, res) => {
-    const filename = req.params.filename;
-    const videoPath = path.join(uploadDir, filename);
-    const metaPath = videoPath + ".json";
-
-    if (!fs.existsSync(videoPath)) return res.status(404).json({ success: false, message: "Videota ei löydy" });
-
-    fs.unlinkSync(videoPath);
-    if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
-
-    res.json({ success: true, message: "Video poistettu" });
-});
-
-// **Päivitä käyttäjänimi**
-app.post("/update-username", (req, res) => {
-    const { userId, newUsername } = req.body;
-    if (!userId || !newUsername) return res.status(400).json({ success: false, message: "Virheelliset tiedot" });
-
-    if (saveUsername(userId, newUsername)) {
-        res.json({ success: true, message: "Käyttäjänimi päivitetty" });
+    const likesData = JSON.parse(fs.readFileSync(likesFile));
+    if (!likesData[filename]) likesData[filename] = {};
+    
+    if (likesData[filename][userId] === vote) {
+        delete likesData[filename][userId]; // Remove vote if toggled off
     } else {
-        res.status(400).json({ success: false, message: "Käyttäjänimi on jo käytössä!" });
+        likesData[filename][userId] = vote;
     }
+    fs.writeFileSync(likesFile, JSON.stringify(likesData, null, 2));
+    res.json({ success: true });
 });
 
-// **Poista videot automaattisesti joka viikko**
-cron.schedule("0 0 * * 0", () => {
+// Get profile
+app.get("/profile/:userId", (req, res) => {
+    const { userId } = req.params;
+    const profiles = JSON.parse(fs.readFileSync(profilesFile));
+    res.json(profiles[userId] || { userId, bio: "No bio", avatar: "default.png", videos: [] });
+});
+
+// Update profile
+app.post("/profile/:userId", upload.single("avatar"), (req, res) => {
+    const { userId } = req.params;
+    const { bio } = req.body;
+    const profiles = JSON.parse(fs.readFileSync(profilesFile));
+    
+    profiles[userId] = {
+        bio: bio || profiles[userId]?.bio || "No bio",
+        avatar: req.file ? `/uploads/${req.file.filename}` : profiles[userId]?.avatar || "default.png"
+    };
+    
+    fs.writeFileSync(profilesFile, JSON.stringify(profiles, null, 2));
+    res.json({ success: true });
+});
+
+// Auto-delete user videos after 168 hours
+cron.schedule("0 * * * *", () => {
     fs.readdir(uploadDir, (err, files) => {
-        if (err) return console.error("Virhe poistettaessa videoita:", err);
-        files.forEach(file => fs.unlinkSync(path.join(uploadDir, file)));
-        console.log("Kaikki videot poistettu automaattisesti!");
+        if (err) return console.error("Error deleting videos:", err);
+        
+        const now = Date.now();
+        files.forEach(file => {
+            if (file.endsWith(".json")) {
+                const metaFile = path.join(uploadDir, file);
+                const videoData = JSON.parse(fs.readFileSync(metaFile));
+                if (now - videoData.uploadTime >= 168 * 60 * 60 * 1000) {
+                    fs.unlinkSync(metaFile.replace(".json", "")); // Delete video
+                    fs.unlinkSync(metaFile); // Delete metadata
+                }
+            }
+        });
     });
 });
 
 app.use("/videos", express.static(uploadDir));
-
-app.listen(PORT, () => console.log(`Palvelin käynnissä portissa ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
