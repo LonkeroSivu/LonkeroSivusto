@@ -3,38 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profiili</title>
+    <title>Käyttäjän profiili</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; }
         .container { max-width: 800px; margin: auto; }
-        .profile-header { display: flex; align-items: center; gap: 10px; justify-content: center; }
-        .profile-header img { width: 100px; height: 100px; border-radius: 50%; border: 2px solid #000; }
+        .profile-header { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .avatar { width: 80px; height: 80px; border-radius: 50%; }
         .video-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-        .video-container { border: 1px solid #ddd; padding: 10px; width: 18%; min-width: 200px; }
+        .video-container { border: 1px solid #ddd; padding: 10px; width: 250px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Profiili</h1>
         <div class="profile-header">
-            <img id="avatar" src="" alt="Profiilikuva">
-            <h2 id="username"></h2>
+            <img id="profileAvatar" src="" alt="Profiilikuva" class="avatar">
+            <h2 id="profileUsername"></h2>
         </div>
-        <p id="bio"></p>
-        <h3>Videot</h3>
+        <p id="profileBio"></p>
+        <hr>
+        <h2>Videot</h2>
         <div id="videoList" class="video-grid"></div>
     </div>
+
     <script>
-        const params = new URLSearchParams(window.location.search);
-        const userId = params.get("user");
+        function getQueryParam(param) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(param);
+        }
 
         function loadProfile() {
+            const userId = getQueryParam("userId");
+            if (!userId) {
+                document.body.innerHTML = "<h2>Käyttäjää ei löytynyt.</h2>";
+                return;
+            }
+
             fetch(`/profile/${userId}`)
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById("username").textContent = data.userId;
-                    document.getElementById("bio").textContent = data.bio || "Ei kuvausta";
-                    document.getElementById("avatar").src = `/avatars/${data.avatar || "default.png"}`;
+                    if (!data.success) {
+                        document.body.innerHTML = "<h2>Käyttäjää ei löytynyt.</h2>";
+                        return;
+                    }
+
+                    document.getElementById("profileUsername").textContent = data.userId;
+                    document.getElementById("profileBio").textContent = data.bio || "Ei kuvausta";
+                    document.getElementById("profileAvatar").src = `/avatars/${data.avatar}`;
 
                     const videoList = document.getElementById("videoList");
                     videoList.innerHTML = "";
@@ -42,14 +57,14 @@
                         const videoContainer = document.createElement("div");
                         videoContainer.classList.add("video-container");
                         videoContainer.innerHTML = `
-                            <p>${video.title}</p>
                             <video src="${video.url}" controls></video>
+                            <p>${video.title}</p>
                         `;
                         videoList.appendChild(videoContainer);
                     });
                 })
                 .catch(() => {
-                    document.body.innerHTML = "<h1>Käyttäjää ei löytynyt</h1>";
+                    document.body.innerHTML = "<h2>Virhe ladattaessa profiilia.</h2>";
                 });
         }
 
