@@ -154,29 +154,32 @@
             });
         }
 
-        function loadVideos() {
-            fetch("/videos")
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const videoList = document.getElementById("videoList");
-                        videoList.innerHTML = "";
-                        data.videos.forEach(video => {
-                            const videoContainer = document.createElement("div");
-                            videoContainer.classList.add("video-container");
-                            videoContainer.innerHTML = `
-                                <div class="user-info" onclick="window.location.href='/profile/${video.userId}'">
-                                    <img class="profile-pic" src="${video.profilePic}" alt="Profiilikuva">
-                                    <p class="username">${video.userId}</p>
-                                </div>
-                                <p>${video.title}</p>
-                                <video src="${video.url}" controls></video>
-                            `;
-                            videoList.appendChild(videoContainer);
-                        });
-                    }
+function loadVideos() {
+    fetch("/videos")
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const videoList = document.getElementById("videoList");
+                videoList.innerHTML = "";
+                data.videos.forEach(video => {
+                    const videoContainer = document.createElement("div");
+                    videoContainer.classList.add("video-container");
+
+                    // Linkitetään käyttäjänimi profiilisivulle
+                    videoContainer.innerHTML = `
+                        <p class="username">
+                            <img src="/avatars/${video.avatar}" alt="Profiilikuva" class="avatar">
+                            <a href="profile.html?userId=${video.userId}" class="user-link">${video.userId}</a>
+                        </p>
+                        <video src="${video.url}" controls></video>
+                        <p>${video.title}</p>
+                    `;
+                    
+                    videoList.appendChild(videoContainer);
                 });
-        }
+            }
+        });
+}
 
         window.onload = () => {
             loadUser();
