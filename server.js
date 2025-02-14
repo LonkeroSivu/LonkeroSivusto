@@ -132,5 +132,34 @@ cron.schedule("0 * * * *", () => {
     });
 });
 
+app.get("/profile/:userId", (req, res) => {
+    const userId = req.params.userId;
+    const users = JSON.parse(fs.readFileSync(usersFile));
+
+    if (!users[userId]) {
+        return res.status(404).json({ success: false, message: "Käyttäjää ei löydy" });
+    }
+
+    const userProfile = {
+        userId,
+        bio: users[userId].bio || "Ei kuvausta",
+        avatar: users[userId].avatar || "default.png",
+        videos: []
+    };
+
+    fs.readdir(uploadDir, (err, files) => {
+        if (err) return res.status(500).json({ success: false, message: "Virhe haettaessa videoita" });
+
+        userProfile.videos = files
+            .filter(file => file.startsWith(userId) && file.endsWith(".mp4"))
+            .map(file => ({
+                title: file.replace(".mp4", ""),
+                url: `/videos/${file}`
+            }));
+
+        res.json({ success: true, ...userProfile });
+    });
+});
+
 app.use("/videos", express.static(uploadDir));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
