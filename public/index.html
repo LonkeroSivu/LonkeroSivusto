@@ -8,26 +8,12 @@
         body { font-family: Arial, sans-serif; text-align: center; }
         .container { max-width: 800px; margin: auto; }
         video { width: 100%; }
-        .video-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-        }
-        .video-container {
-            border: 1px solid #ddd;
-            padding: 10px;
-            width: 18%;
-            min-width: 200px;
-        }
+        .video-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .video-container { border: 1px solid #ddd; padding: 10px; width: 18%; min-width: 200px; }
         .username { font-weight: bold; color: blue; cursor: pointer; }
         .delete-btn { color: red; cursor: pointer; }
-        .profile-container { text-align: center; }
-        .like-dislike {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-        }
+        .profile-section { margin-top: 20px; }
+        .profile-picture { width: 100px; height: 100px; border-radius: 50%; }
     </style>
 </head>
 <body>
@@ -36,14 +22,19 @@
         <h2>Hakupalkki</h2>
         <input type="text" id="searchBar" placeholder="Etsi videoita tai käyttäjiä..." oninput="searchVideos()">
 
-        <h2>Käyttäjäprofiili</h2>
-        <img id="profilePic" src="default-profile.png" width="100" height="100" alt="Profiilikuva">
-        <p id="profileDescription"></p>
-        <button onclick="editProfile()">Muokkaa profiilia</button>
-        
+        <h2>Profiili</h2>
+        <img id="profilePicture" class="profile-picture" src="default.png" alt="Profiilikuva">
+        <p id="userDisplay"></p>
+        <input type="file" id="profileImageUpload" accept="image/*">
+        <button onclick="updateProfileImage()">Vaihda kuva</button>
+        <br>
+        <textarea id="profileBio" placeholder="Kirjoita profiilikuvaus..."></textarea>
+        <button onclick="updateProfileBio()">Päivitä kuvaus</button>
+
         <h2>Lataa video</h2>
         <input type="file" id="videoUpload" accept="video/*">
         <input type="text" id="videoTitle" placeholder="Videon nimi" required>
+        <input type="text" id="videoBio" placeholder="Videon kuvaus (vapaaehtoinen)">
         <button onclick="uploadVideo()">Julkaise</button>
         <p id="error" style="color: red;"></p>
         
@@ -53,6 +44,76 @@
     </div>
 
     <script>
+        function generateUserId() {
+            if (!localStorage.getItem("userId")) {
+                const username = prompt("Valitse käyttäjänimi (ainutlaatuinen):");
+                if (!username || username.trim() === "") return generateUserId();
+                localStorage.setItem("userId", username);
+            }
+            return localStorage.getItem("userId");
+        }
+
+        function loadUser() {
+            document.getElementById("userDisplay").textContent = "Tunnus: " + generateUserId();
+        }
+
+        function updateProfileImage() {
+            const fileInput = document.getElementById("profileImageUpload");
+            if (fileInput.files.length === 0) return alert("Valitse kuva!");
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                document.getElementById("profilePicture").src = event.target.result;
+                localStorage.setItem("profilePicture", event.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateProfileBio() {
+            const bio = document.getElementById("profileBio").value;
+            localStorage.setItem("profileBio", bio);
+        }
+
+        function uploadVideo() {
+            const fileInput = document.getElementById("videoUpload");
+            const titleInput = document.getElementById("videoTitle").value.trim();
+            const bioInput = document.getElementById("videoBio").value.trim();
+            const error = document.getElementById("error");
+            
+            if (fileInput.files.length === 0) {
+                error.textContent = "Valitse video!";
+                return;
+            }
+            if (!titleInput) {
+                error.textContent = "Videolla täytyy olla nimi!";
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append("video", file);
+            formData.append("title", titleInput);
+            formData.append("bio", bioInput);
+            formData.append("userId", generateUserId());
+
+            fetch("/upload", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadVideos();
+                } else {
+                    error.textContent = "Virhe tiedoston latauksessa.";
+                }
+            })
+            .catch(() => {
+                error.textContent = "Virhe tiedoston latauksessa.";
+            });
+        }
+
         function loadVideos() {
             fetch("/videos")
                 .then(response => response.json())
@@ -65,12 +126,9 @@
                             videoContainer.classList.add("video-container");
                             
                             videoContainer.innerHTML = `
-                                <p class="username" onclick="viewProfile('${video.userId}')">${video.userId}</p>
+                                <p class="username" onclick="goToProfile('${video.userId}')">${video.userId}</p>
                                 <video src="${video.url}" controls></video>
-                                <div class="like-dislike">
-                                    <button onclick="likeVideo('${video.id}')">👍 ${video.likes}</button>
-                                    <button onclick="dislikeVideo('${video.id}')">👎 ${video.dislikes}</button>
-                                </div>
+                                ${video.bio ? `<p>${video.bio}</p>` : ""}
                             `;
                             
                             videoList.appendChild(videoContainer);
@@ -79,21 +137,12 @@
                 });
         }
 
-        function likeVideo(videoId) {
-            fetch(`/video/${videoId}/like`, { method: "POST" })
-                .then(() => loadVideos());
-        }
-
-        function dislikeVideo(videoId) {
-            fetch(`/video/${videoId}/dislike`, { method: "POST" })
-                .then(() => loadVideos());
-        }
-
-        function viewProfile(userId) {
-            window.location.href = `/profile/${userId}`;
+        function goToProfile(username) {
+            alert("Profiili: " + username);
         }
 
         window.onload = () => {
+            loadUser();
             loadVideos();
         };
     </script>
