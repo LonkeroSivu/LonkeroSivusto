@@ -31,47 +31,83 @@ app.use(express.static("public"));
 app.use(express.json());
 app.use(require("cors")());
 
-// ✅ Lataa video
-app.post("/upload", upload.single("video"), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, message: "Upload failed" });
+// ✅ Käyttäjän nimen vaihtaminen (ainutlaatuisuus varmistettu)
+app.post("/change-username/:userId", (req, res) => {
+    const { userId } = req.params;
+    const { newUsername } = req.body;
+    const profiles = JSON.parse(fs.readFileSync(profilesFile));
 
-    const filePath = `/videos/${req.file.filename}`;
-    const uploadTime = Date.now();
+    if (Object.keys(profiles).includes(newUsername)) {
+        return res.status(400).json({ success: false, message: "Käyttäjänimi on jo käytössä." });
+    }
 
-    const videoData = {
-        title: req.body.title || "Untitled",
-        userId: req.body.userId,
-        filename: req.file.filename,
-        url: filePath,
-        uploadTime,
-        likes: 0,
-        dislikes: 0
-    };
+    if (!profiles[userId]) {
+        return res.status(404).json({ success: false, message: "Käyttäjää ei löydy." });
+    }
 
-    fs.writeFileSync(path.join(uploadDir, `${req.file.filename}.json`), JSON.stringify(videoData, null, 2));
-    res.json({ success: true, filePath });
+    profiles[newUsername] = { ...profiles[userId] };
+    delete profiles[userId];
+
+    fs.writeFileSync(profilesFile, JSON.stringify(profiles, null, 2));
+    res.json({ success: true, message: "Käyttäjänimi vaihdettu onnistuneesti.", newUsername });
 });
 
-// ✅ Hae videot
-app.get("/videos", (req, res) => {
+// ✅ Like ja Dislike (vain yhden voi antaa)
+app.post("/video/:filename/vote", (req, res) => {
+    const { filename } = req.params;
+    const { userId, vote } = req.body;
+    if (!["like", "dislike"].includes(vote)) return res.status(400).json({ success: false });
+
+    const likesData = JSON.parse(fs.readFileSync(likesFile));
+    if (!likesData[filename]) likesData[filename] = {};
+
+    if (likesData[filename][userId] === vote) {
+        delete likesData[filename][userId]; // Poista ääni jos jo annettu
+    } else {
+        likesData[filename][userId] = vote;
+    }
+    fs.writeFileSync(likesFile, JSON.stringify(likesData, null, 2));
+
+    const likes = Object.values(likesData[filename]).filter(v => v === "like").length;
+    const dislikes = Object.values(likesData[filename]).filter(v => v === "dislike").length;
+
+    res.json({ success: true, likes, dislikes });
+});
+
+// ✅ Hae käyttäjä nimellä
+app.get("/user/:username", (req, res) => {
+    const { username } = req.params;
+    const profiles = JSON.parse(fs.readFileSync(profilesFile));
+
+    if (!profiles[username]) {
+        return res.status(404).json({ success: false, message: "Käyttäjää ei löydy." });
+    }
+
+    res.json({ success: true, profile: profiles[username] });
+});
+
+// ✅ Hae video nimellä
+app.get("/video/:title", (req, res) => {
+    const { title } = req.params;
     fs.readdir(uploadDir, (err, files) => {
         if (err) return res.status(500).json({ success: false });
 
-        const videos = files.filter(file => file.endsWith(".mp4")).map(file => {
-            const metaFile = path.join(uploadDir, file + ".json");
-            let meta = { title: file, userId: "Unknown", likes: 0, dislikes: 0 };
-
-            if (fs.existsSync(metaFile)) {
-                meta = JSON.parse(fs.readFileSync(metaFile));
-            }
-            return { ...meta, url: `/videos/${file}` };
+        const videos = files.filter(file => file.endsWith(".json")).map(file => {
+            const metaFile = path.join(uploadDir, file);
+            const videoData = JSON.parse(fs.readFileSync(metaFile));
+            return videoData;
         });
 
-        res.json({ success: true, videos });
+        const foundVideos = videos.filter(v => v.title.toLowerCase().includes(title.toLowerCase()));
+        if (foundVideos.length === 0) {
+            return res.status(404).json({ success: false, message: "Videota ei löydy." });
+        }
+
+        res.json({ success: true, videos: foundVideos });
     });
 });
 
-// ✅ Profiilin haku (paranneltu versio)
+// ✅ Profiilin haku (käyttäjän videot mukaan lukien)
 app.get("/profile/:userId", (req, res) => {
     const { userId } = req.params;
     const profiles = JSON.parse(fs.readFileSync(profilesFile));
@@ -108,24 +144,6 @@ app.post("/profile/:userId", upload.single("avatar"), (req, res) => {
     };
 
     fs.writeFileSync(profilesFile, JSON.stringify(profiles, null, 2));
-    res.json({ success: true });
-});
-
-// ✅ Tykkäysjärjestelmä (like/dislike)
-app.post("/video/:filename/vote", (req, res) => {
-    const { filename } = req.params;
-    const { userId, vote } = req.body;
-    if (!["like", "dislike"].includes(vote)) return res.status(400).json({ success: false });
-
-    const likesData = JSON.parse(fs.readFileSync(likesFile));
-    if (!likesData[filename]) likesData[filename] = {};
-
-    if (likesData[filename][userId] === vote) {
-        delete likesData[filename][userId]; // Poista ääni jos jo annettu
-    } else {
-        likesData[filename][userId] = vote;
-    }
-    fs.writeFileSync(likesFile, JSON.stringify(likesData, null, 2));
     res.json({ success: true });
 });
 
